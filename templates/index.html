@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Cybersecurity Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Socket.IO client -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>AI Cybersecurity — Live Anomaly Dashboard</h1>
+
+    <div class="row">
+      <div class="card">
+        <h3>Summary</h3>
+        <div id="summary">
+          <div>Total events: <span id="total">0</span></div>
+          <div>Anomalies (last 200): <span id="anoms">0</span></div>
+          <div>Latest error: <span id="latest_err">-</span></div>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <h3>Reconstruction Error (live)</h3>
+        <canvas id="errorChart"></canvas>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card full">
+        <h3>Recent Events</h3>
+        <table id="eventsTable">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Error</th>
+              <th>Threshold</th>
+              <th>Anomaly</th>
+              <th>Payload (click)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+const socket = io('/dashboard');
+
+let events = [];
+const maxPoints = 100;
+
+// Chart setup
+const ctx = document.getElementById('errorChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Reconstruction Error',
+      data: [],
+      fill: false,
+      tension: 0.2,
+      pointRadius: 2
+    }]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: { display: false },
+      y: { beginAtZero: true }
+    }
+  }
+});
+
+function updateSummary() {
+  document.getElementById('total').innerText = events.length;
+  const anomCount = events.filter(e => e.anomaly).length;
+  document.getElementById('anoms').innerText = anomCount;
+  document.getElementById('latest_err').innerText = events.length ? events[0].reconstruction_error.toFixed(6) : '-';
+}
+
+function addEvent(evt) {
+  events.unshift(evt); // newest first
+  if (events.length > 200) events.pop();
+
+  // Update table
+  const tbody = document.querySelector('#eventsTable tbody');
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td>${evt.iso_time}</td>
+    <td>${evt.reconstruction_error.toFixed(6)}</td>
+    <td>${evt.threshold.toFixed(6)}</td>
+    <td style="color:${evt.anomaly?'red':'green'}">${evt.anomaly?'YES':'NO'}</td>
+    <td><button class="view-payload">View</button></td>
+  `;
+  tbody.prepend(row);
+  // Keep table length bounded
+  while (tbody.children.length > 200) tbody.removeChild(tbody.lastChild);
+
+  // view payload listener
+  row.querySelector('.view-payload').addEventListener('click', () => {
+    alert(JSON.stringify(evt.input, null, 2));
+  });
+
+  // Update chart
+  chart.data.labels.unshift(evt.iso_time);
+  chart.data.datasets[0].data.unshift(evt.reconstruction_error);
+  if (chart.data.labels.length > maxPoints) {
+    chart.data.labels.pop();
+    chart.data.datasets[0].data.pop();
+  }
+  chart.update();
+
+  updateSummary();
+}
+
+// Socket handlers
+socket.on('connect', () => {
+  console.log("connected to dashboard socket");
+});
+
+socket.on('init', (initial) => {
+  // initial is an array of recent events (newest first)
+  document.querySelector('#eventsTable tbody').innerHTML = '';
+  events = initial;
+  // populate table and chart
+  initial.slice(0).reverse().forEach(e => { // show newest first by prepending, so reverse
+    addEvent(e);
+  });
+  updateSummary();
+});
+
+socket.on('new_event', (evt) => {
+  console.log('new_event', evt);
+  addEvent(evt);
+});
+
+// heartbeats
+setInterval(() => socket.emit('ping',{t:Date.now()}), 15000);
+</script>
+</body>
+</html>

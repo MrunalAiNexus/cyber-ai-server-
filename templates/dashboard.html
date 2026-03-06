@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cyber AI Dashboard</title>
+    <style>
+        body { background:#0b0f19; font-family:Arial; color:white; margin:0; }
+        h1 { text-align:center; margin-top:10px; }
+        .section { background:#11192c; margin:15px; padding:15px; border-radius:8px; }
+        .card { background:#1b2438; margin-bottom:8px; padding:10px; border-radius:5px; }
+        .risk-high { border-left:6px solid #ff4d4d; }
+        .risk-low { border-left:6px solid #4dff88; }
+        button { padding:10px 15px; background:#0aa1ff; border:none; border-radius:5px; color:white; cursor:pointer; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; }
+        td,th { padding:8px; border-bottom:1px solid #333; }
+    </style>
+
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+
+<body>
+
+<h1>🔐 Cybersecurity Monitoring Dashboard</h1>
+
+<!-- ================= Real-Time Anomaly Feed ================= -->
+<div class="section">
+    <h2>🧠 Real-Time Threat Detection</h2>
+    <div id="feed"></div>
+</div>
+
+<!-- ================= WiFi Scanner ================= -->
+<div class="section">
+    <h2>📡 WiFi Security Scanner</h2>
+    <button onclick="scanWiFi()">Scan Now</button>
+    <div id="wifi"></div>
+</div>
+
+<!-- ================= Vault ================= -->
+<div class="section">
+    <h2>🔑 Password Vault</h2>
+
+    <h3>Add Credential</h3>
+    <input id="v-service" placeholder="Service" />
+    <input id="v-user" placeholder="Username" />
+    <input id="v-pass" placeholder="Password" />
+    <button onclick="saveVAULT()">Save</button>
+    <p id="vault-msg"></p>
+
+    <h3>Stored Passwords</h3>
+    <table id="vault-table"></table>
+
+    <button onclick="checkAll()">Check Breaches</button>
+    <div id="breach-results"></div>
+</div>
+
+<script>
+/* ---------------- REAL-TIME AI ANOMALY MONITORING ---------------- */
+const socket = io("/dashboard");   // MUST MATCH BACKEND NAMESPACE
+
+// When server streams a new anomaly
+socket.on("new_event",(evt)=> addThreat(evt));
+
+// Load history once on page open
+socket.emit("request_init");
+socket.on("init",(list)=> list.forEach(addThreat));
+
+function addThreat(evt){
+    const box = document.getElementById("feed");
+
+    const div = document.createElement("div");
+    div.className = "card " + (evt.anomaly ? "risk-high" : "risk-low");
+    div.innerHTML = `
+        <b>${evt.iso_time}</b><br>
+        🧠 Status: ${evt.anomaly ? "🔥 HIGH RISK" : "🟢 SAFE"}<br>
+        Score: ${evt.reconstruction_error.toFixed(4)}
+    `;
+
+    box.prepend(div);   // Newest events appear top
+}
+
+
+
+// ================= WIFI SCANNER =====================
+// ================= WIFI SCANNER UI FIX =====================
+function scanWiFi(){
+    document.getElementById("wifi").innerHTML = "Scanning...";
+    
+    fetch("/wifi-scan")
+    .then(r=>r.json())
+    .then(d=>{
+        if (!d.results || d.results.length === 0){
+            document.getElementById("wifi").innerHTML = `
+                <div style="padding:10px;color:#ff6b6b;">
+                    ⚠ No networks detected — wifi scanner returned empty.
+                </div>
+            `;
+            return;
+        }
+
+        let table = `
+        <table>
+            <tr><th>SSID</th><th>Security</th><th>Risk</th></tr>
+        `;
+
+        d.results.forEach(n=>{
+            let risk = n.security.includes("WPA3") ? "Low" :
+                       n.security.includes("WPA2") ? "Medium" : "⚠ High";
+
+            table += `
+                <tr>
+                    <td>${n.ssid || "Unknown"}</td>
+                    <td>${n.security}</td>
+                    <td style="color:${risk==="⚠ High"?"#ff4d4d":"#4dff88"}">${risk}</td>
+                </tr>
+            `;
+        });
+
+        table += "</table>";
+        document.getElementById("wifi").innerHTML = table;
+    })
+    .catch(e=>{
+        document.getElementById("wifi").innerHTML =
+        `<span style="color:#ff4d4d;">ERROR: ${e}</span>`;
+    });
+}
+
+// ================= VAULT SAVE ========================
+function saveVAULT(){
+    fetch("/vault/add",{
+        method:"POST",
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+            service:document.getElementById("v-service").value,
+            username:document.getElementById("v-user").value,
+            password:document.getElementById("v-pass").value
+        })
+    }).then(r=>r.json())
+    .then(d=>{
+        document.getElementById("vault-msg").innerText=d.message;
+        loadVault();
+    })
+}
+
+function loadVault(){
+    fetch("/vault")
+    .then(r=>r.json())
+    .then(d=>{
+        let rows = "<tr><th>Service</th><th>User</th><th>Password</th></tr>";
+        d.stored.forEach(e=> rows+=
+            `<tr><td>${e.service}</td><td>${e.username}</td><td>${e.password}</td></tr>`
+        );
+        document.getElementById("vault-table").innerHTML=rows;
+    })
+}
+loadVault();
+
+function checkAll(){
+    fetch("/vault/check-all")
+    .then(r=>r.json())
+    .then(d=>{
+        document.getElementById("breach-results").innerHTML=
+        "<pre>"+JSON.stringify(d,null,2)+"</pre>";
+    })
+}
+</script>
+</body>
+</html>
