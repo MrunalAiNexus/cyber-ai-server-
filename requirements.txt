@@ -276,9 +276,10 @@ Flask-SocketIO
 eventlet
 numpy
 joblib
-tensorflow
+tensorflow-cpu
 bcrypt
 requests
 opencv-python
 gunicorn
 oracledb
+
